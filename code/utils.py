@@ -98,7 +98,7 @@ def transform_crs(data_path, save_path, dst_crs="EPSG:4326", resolution=(10, 10)
 
 
 def crop_raster(raster_path, aoi_path, out_raster_name=None):
-    """Crop a patch of the raster where it is with
+    """Crop a patch of the raster where it is within
     the bounds of specified Area of Interest"""
     aoi = gpd.read_file(aoi_path)
     with rasterio.open(raster_path) as tile:
