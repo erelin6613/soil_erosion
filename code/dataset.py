@@ -54,35 +54,44 @@ class ImageryReaderDataset(Dataset):
             image_mask = np.zeros((out_channels, x_shape, y_shape))
         tiles = []
 
-        for i in range((image.shape[0] // tile_size) + 1):
-            for j in range((image.shape[-1] // tile_size) + 1):
+        for i in range((image.shape[-1] // tile_size) + 1):
+            for j in range((image.shape[-2] // tile_size) + 1):
 
                 x1, y1 = int(i * tile_size), int(j * tile_size)
-                if x1 > image.shape[-2] or y1 > image.shape[-1]:
+                if x1 > image.shape[-1] or y1 > image.shape[-2]:
                     break
 
                 y2 = (
-                    y1 + (image.shape[-1] - y1)
-                    if image.shape[-1] - y1 < tile_size
+                    y1 + (image.shape[-2] - y1)
+                    if image.shape[-2] - y1 < tile_size
                     else y1 + tile_size
                 )
                 x2 = (
-                    x1 + (image.shape[-2] - x1)
-                    if image.shape[-2] - x1 < tile_size
+                    x1 + (image.shape[-1] - x1)
+                    if image.shape[-1] - x1 < tile_size
                     else x1 + tile_size
                 )
                 tile = image[:, x1:x2, y1:y2]
+                if tile.shape[-1] == 0 or tile.shape[-2] == 0:
+                    continue
 
-                if tile.shape > (image.shape[0], tile_size, tile_size):
-                    empty_mask = np.zeros((image.shape[0], tile_size, tile_size))
-                    empty_mask[:, : tile.shape[-2], : tile.shape[-1]] = tile
-                    image_tensor = empty_mask
+                if tile.shape != (image.shape[0], tile_size, tile_size):
+                    empty_image = np.zeros((image.shape[0], tile_size, tile_size))
+                    empty_image[:, : tile.shape[-2], : tile.shape[-1]] = tile
+                    image_tensor = empty_image
+
                 else:
                     image_tensor = tile
 
                 if mask is not None:
                     # print(mask)
-                    image_mask = mask[x1 : x1 + tile_size, y1 : y1 + tile_size]
+                    if tile.shape != (image.shape[0], tile_size, tile_size):
+                        empty_mask = np.zeros((tile_size, tile_size))
+                        empty_mask[: tile.shape[-2], : tile.shape[-1]] = mask[
+                            x1 : x1 + tile.shape[-2], y1 : y1 + tile.shape[-1]]
+                        image_mask = empty_mask
+                    else:
+                        image_mask = mask[x1 : x1 + tile_size, y1 : y1 + tile_size]
                     tiles.append((image_tensor, image_mask))
                 else:
                     tiles.append((image_tensor, None))
@@ -169,7 +178,7 @@ class ImageryReaderDataset(Dataset):
                 shapes=aoi.boundary.geometry.tolist(),
                 out_shape=(region.shape[-2], region.shape[-1]),
                 transform=region_tfs,
-                default_value=1,
+                default_value=0,
             )
 
             if mask_aoi is not None:
