@@ -8,6 +8,7 @@ import geopandas as gpd
 import rasterio
 import rasterio.mask as riomask
 from shapely.geometry.collection import GeometryCollection
+import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
@@ -106,6 +107,15 @@ class ImageryReaderDataset(Dataset):
             return tilename.group(0)
         return None
 
+    def _extract_s2_date(self, filename):
+        pattern = r"_[0-9]{8}T"
+        # print("*", pattern, filename)
+        tilename = re.search(pattern, str(filename))
+        if tilename is not None:
+            date = tilename.group(0)
+            return f"{date[:5]}_{date[5:7]}_{date[7:9]}"
+        return None
+
     def prepare_data(self):
         out_folder = Path(self.input_folder).name + "_dataset"
         out_folder = Path(self.out_folder)
@@ -199,16 +209,19 @@ class ImageryReaderDataset(Dataset):
 
         tiles = self.tile_image(composit_img, self.tile_size, raster_mask)
         tilename = self._extract_s2_tilename(raster_dir)
+        tiledate = self._extract_s2_date(raster_dir)
 
         tiles_dir, masks_dir = Path(tiles_dir), Path(masks_dir)
         tiles_dir.mkdir(parents=True, exist_ok=True)
         masks_dir.mkdir(parents=True, exist_ok=True)
 
         for i, (image, mask) in enumerate(tiles):
-            f_name = f"{tilename}_{Path(aoi_file).stem}_{i}.npy"
+            f_name = f"{tilename}_{Path(aoi_file).stem}_{tiledate}_{i}.npy"
             img_path, mask_path = tiles_dir.joinpath(f_name), masks_dir.joinpath(f_name)
 
             # print(img_path, mask_path)
+            if mask.sum() == 0:
+                continue
 
             with open(str(img_path), "wb") as f:
                 np.save(f, image)
@@ -218,16 +231,89 @@ class ImageryReaderDataset(Dataset):
         return tiles
 
 
+class ChipsDataset(Dataset):
+    """The ChipsDataset is a simple torch.utils.data.Dataset
+    instance helping to index and supply image mini chips with
+    corresponding masks and/or filters
+    @param: index_df - pd.DataFrame object with necessary columns:
+                        "filter_chip", "mask_chip", "tci_chip",
+                        these contain a paths to mask to ignore,
+                        label mask and tci images.
+    @param: bands - bands to be stacked together as an input image
+    """
+
+    def __init__(self, index_df,
+                 bands=['tci', 'nir', 'ndvi'],
+                 #transfoms=train_tfs
+                 transforms=None
+                 ):
+
+        self.index_df = index_df
+        self.bands = bands
+
+        self.band_cols = self.index_df.filter(regex='|'.join(bands)).columns
+        self.transforms = transforms
+
+    def __len__(self):
+        return self.index_df.shape[0]
+
+    def __getitem__(self, idx):
+        row = self.index_df.loc[idx, :]
+
+        # mask = cv2.imread(row['mask_path'])
+        mask = np.load(row["mask_path"])
+        # stacks = []
+        #
+        # # print(mask, row[self.band_cols])
+        #
+        # for img in row[self.band_cols]:
+        #     # chip = cv2.imread(img)
+        #     chip = np.load(img)
+        #
+        #     print(chip.shape, img)
+        #     if len(chip.shape) == 2:
+        #         stacks.append(chip)
+        #     else:
+        #         for channel in range(chip.shape[-1]):
+        #             stacks.append(chip[:, :, channel])
+        #
+        # stacks = [img / 255 for img in stacks]
+        image = np.load(row["img_path"]) / 255 # np.stack(stacks, axis=-1)
+
+        if self.transforms is not None:
+            transformed = self.transforms(
+                image=image,
+                gt_mask=mask,
+                filter_mask=mask_ignore)
+
+            # img, mask, mask_ignore = (transformed['image'],
+            #                           transformed['gt_mask'],
+            #                           transformed['filter_mask'])
+            img, mask = (transformed['image'], transformed['gt_mask'])
+
+            mask = mask.unsqueeze(0)/255
+            # mask_ignore = np.where(mask_ignore >= 250, True, False)
+
+            # return img.float(), mask, torch.tensor(mask_ignore)
+        else:
+            img = torch.from_numpy(image)
+            mask = torch.from_numpy(mask/255)
+        return img.float(), mask.float()
+
 if __name__ == "__main__":
-    # pass
-    # for x in Path("/home/quantum/soil_erosion/data").iterdir():
-    #     print(x)
-    # exit()
-    aois = [
-        str(x)
-        for x in Path("/home/quantum/soil_erosion/data").iterdir()
-        if "_aoi" in str(x)
-    ]
-    # print(aois)
-    d = ImageryReaderDataset(aois, "/home/quantum/soil_erosion/imagery/")
-    d.prepare_data()
+
+    # aois = [
+    #     str(x)
+    #     for x in Path("/home/val/soil_erosion/data").iterdir()
+    #     if "_aoi" in str(x)
+    # ]
+    # # print(aois)
+    # d = ImageryReaderDataset(aois, "/home/val/soil_erosion/imagery/2018")
+    # d.prepare_data()
+
+    import pandas as pd
+    df = pd.read_csv("../notebooks/chip_index.csv")
+
+    df["TCI_path"] = df["img_path"]
+    dataset = ChipsDataset(df[df.skip == 0].reset_index(), bands=["TCI"])
+    print(dataset[0][0].shape, dataset[0][1].shape)

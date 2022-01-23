@@ -1,0 +1,15 @@
+# Raster preprocessing
+RASTER_BANDS = ["TCI"]
+
+# Unet settings
+UNET_DOWN_BLOCKS = [64, 128, 256, 512, 1024]
+UNET_UP_BLOCKS = [512, 256, 128, 64]
+UNET_OUT_CLASSES = 1
+UNET_IN_CHANNELS = 3
+
+# Training parameters
+BATCH_SIZE = 4
+LEARNING_RATE = 1e-3
+MAX_EPOCHS = 10
+EARLY_STOPPING = False
+EXPERIMENT_NAME = "testing"
