@@ -1,0 +1,20 @@
+train:
+  model:
+    version: u2net
+    resume: False
+    device: cpu
+    checkpoint_path: saved_models/u2net/u2net_bce_4_channels_new_itr_49000_train_0.888551_tar_0.112238.pth
+    save_path: saved_models/u2net/u2net_5_ch_dice_last.onnx
+  HParams:
+    lr: 0.0001
+    epochs: 60
+    batch_size: 2
+  other:
+    images_dir: ../imagery/2018_dataset/tiles
+    masks_dir: ../imagery/2018_dataset/masks
+    exp_name: bg_removal
+    port: 6000
+evaluate:
+  evaluate_or_test: test
+  test_data: test_data
+  checkpoint_path: saved_models/u2net_last.pth
